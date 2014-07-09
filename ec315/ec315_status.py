@@ -28,6 +28,12 @@ import base64
 
 import requests
 
+current_dir = os.path.dirname(os.path.abspath(__file__))+'/'
+img_dir = current_dir+'img/'
+
+def notify(msg, title='Modem EC315', image=img_dir+'signal0.png'):
+    pynotify.Notification(title, msg, image).show()
+    
 
 def try_exept(func):
     @wraps(func)
@@ -36,19 +42,20 @@ def try_exept(func):
             return func(*args, **kwargs)
         except Exception as err:
             print err
+            notify(str(err), 'Modem EC315 Extention')
             return err
     return wrapper
-
 
 class Inter():     
 
     def __init__(self):
         pynotify.init('Intertelecom indicator EC315')
-        self.current_dir=os.path.dirname(os.path.abspath(__file__))+'/'
-        self.img_dir=self.current_dir+'img/'
+        self.current_dir = current_dir
+        self.img_dir = img_dir
         
-        pynotify.Notification('Modem EC315', 'Indicator is starting worked', 
-            self.img_dir+'signal0.png').show()
+        notify('Indicator is starting worked')
+
+        self.old_connection_status = ''
 
         self.indicator = appindicator.Indicator('inter_indicator', self.img_dir+'signal0.png', 
             appindicator.CATEGORY_APPLICATION_STATUS)
@@ -58,7 +65,7 @@ class Inter():
 
         refresh_modem_now_item = gtk.MenuItem('Refresh Modem Status')
         restart_modem_item = gtk.MenuItem('Restart Modem')
-        change_modem_connection_mode_item = gtk.MenuItem('Change connection mode')
+        change_modem_connection_mode_item = gtk.MenuItem('Change Connection Mode')
         self.modem_connection_mode = gtk.MenuItem('Connection mode: N/A')
         self.modem_connection_status_label = gtk.MenuItem('Connection: N/A')
         self.modem_tx_rx_label = gtk.MenuItem('Total: %s Mb, Tx: N/A Mb, Rx: N/A Mb')
@@ -109,7 +116,6 @@ class Inter():
     @try_exept
     def change_connect_mode_modem(self, action=None):
         '''This method changing connect mode to Auto or Manual'''
-        self.login()
         response = self.getpost_data(settings.CONNECTION_URL, 'get')
         connectmode = int(response.ConnectMode.text)
         new_connectmode = response.new_tag('ConnectMode')
@@ -118,9 +124,9 @@ class Inter():
         self.getpost_data(settings.CONNECTION_URL, 'post', str(response).replace('response', 'request'))
 
         new_connectmode = int(new_connectmode.text)
-        pynotify.Notification('Modem EC315','Changing connect mode to %s' % 
-            settings.CONNECTION_MODE[new_connectmode], self.img_dir+'signal2.png').show() 
-
+        notify('Changing connect mode to %s' % settings.CONNECTION_MODE[new_connectmode])
+        self.get_status()
+        
     @try_exept
     def login(self):
         '''This method provide loggin'''
@@ -131,11 +137,36 @@ class Inter():
     @try_exept
     def restart_modem(self,  action=None):
         '''This method restarts/reboots modem'''
-        self.login()
         payload = "<?xml version='1.0' encoding='UTF-8'?><request><Control>1</Control></request>"
         self.getpost_data(settings.CONTROL_URL, 'post', payload)
+        notify('Restarting')
+        self.get_status()
+    
+    def get_status(self):
+        status = self.getpost_data(settings.STATUS_URL, 'get')    
+        self.indicator.set_icon('signal'+status.SignalIcon.text)
+        connectionstatus_code = int(status.ConnectionStatus.text)
+        self.connection_status = settings.CONNECTIONSTATUS_CODES[connectionstatus_code]
+        self.modem_connect_clients_label.set_label('Clients connected: %s' % status.CurrentWifiUser.text)        
         
-        pynotify.Notification('Modem EC315', 'Restarting', self.img_dir+'signal2.png').show()
+        print 'before'+self.old_connection_status+' = '+self.connection_status
+        if self.old_connection_status != self.connection_status:
+            notify(self.connection_status)
+        self.old_connection_status = self.connection_status
+        print 'after'+self.old_connection_status+' = '+self.connection_status
+
+    def get_trafficstat(self):
+        trafficstat = self.getpost_data(settings.TRAFFICSTATS_URL, 'get')
+        tx = float(trafficstat.CurrentDownload.text)/1024/1024
+        rx = float(trafficstat.CurrentUpload.text)/1024/1024
+        self.modem_tx_rx_label.set_label('Total: %0.2f Mb, Tx: %0.2f Mb, Rx: %0.2f Mb' % (tx + rx, tx, rx))
+        self.seconds = int(trafficstat.CurrentConnectTime.text)
+
+    
+    def get_connectmode(self):
+        connection_mode = self.getpost_data(settings.CONNECTION_URL, 'get')
+        connectmode = int(connection_mode.ConnectMode.text)
+        self.modem_connection_mode_label.set_label('Connection mode: %s' % settings.CONNECTION_MODE[connectmode])                
 
     @try_exept
     def refresh_modem_status(self, action=None):
@@ -148,23 +179,12 @@ class Inter():
             self.refresh_modem_timer = gobject.timeout_add(settings.MODEM_REFRESH_TIMEOUT_SECS*1000, self.refresh_modem_status)
         
         self.login()
-        status = self.getpost_data(settings.STATUS_URL, 'get')    
-        self.indicator.set_icon('signal'+status.SignalIcon.text)
-        connectionstatus_code = int(status.ConnectionStatus.text)
-        connection_status = settings.CONNECTIONSTATUS_CODES[connectionstatus_code]
-        self.modem_connect_clients_label.set_label('Clients connected: %s' % status.CurrentWifiUser.text)
-
-        trafficstat = self.getpost_data(settings.TRAFFICSTATS_URL, 'get')
-        tx = float(trafficstat.CurrentDownload.text)/1024/1024
-        rx = float(trafficstat.CurrentUpload.text)/1024/1024
-        self.modem_tx_rx_label.set_label('Total: %0.2f Mb, Tx: %0.2f Mb, Rx: %0.2f Mb' % (tx + rx, tx, rx))
-        seconds = int(trafficstat.CurrentConnectTime.text)
-        time = str(datetime.timedelta(seconds=seconds))
-        self.modem_connection_status_label.set_label('%s Time: %s' % (connection_status, time))
-
-        connection_mode = self.getpost_data(settings.CONNECTION_URL, 'get')
-        connectmode = int(connection_mode.ConnectMode.text)
-        self.modem_connection_mode_label.set_label('Connection mode: %s' % settings.CONNECTION_MODE[connectmode])
+        self.get_status()              
+        self.get_trafficstat()
+        self.get_connectmode()
+        
+        time = datetime.timedelta(seconds=self.seconds)
+        self.modem_connection_status_label.set_label('%s Time: %s' % (self.connection_status, time))
 
         while gtk.events_pending():
             gtk.main_iteration()
