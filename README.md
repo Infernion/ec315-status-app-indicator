@@ -8,6 +8,8 @@ Gnome Applet Indicator for Huawei ec315 modem (Displays signal strength, , allow
 Tested under:
 - elementary os 0.2 Luna
 
+![ScreenShot](https://raw.githubusercontent.com/Infernion/ec315-status-app-indicator/master/screenshot/Tooltip_002.png)
+
 ec315-status-app-indicator is `BSD licensed` ( http://www.linfo.org/bsdlicense.html ).
 
 Please let me know if you have any questions.
